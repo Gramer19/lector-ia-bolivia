@@ -4,75 +4,104 @@ import easyocr
 from PIL import Image
 import numpy as np
 from io import BytesIO
+import re
 
-# Configuración inicial
-st.set_page_config(page_title="Lector de Contactos Pro", layout="centered")
+st.set_page_config(page_title="Extractor de Contactos", layout="wide")
 
-# Cargamos el lector de OCR (esto puede tardar un poco la primera vez)
 @st.cache_resource
 def load_reader():
+    # Cargamos el modelo en español
     return easyocr.Reader(['es'])
 
 reader = load_reader()
 
-st.title("📸 Extractor de Contactos Múltiple")
-st.write("Sube tus capturas y descarga un solo Excel con todos los datos.")
+st.title("📸 Extractor de Contactos a Excel (Columnas A, B, C)")
+st.write("Sube tus capturas. Los datos se organizarán lado a lado en el Excel.")
 
-# 1. Subida múltiple de archivos
 uploaded_files = st.file_uploader(
-    "Selecciona una o varias imágenes", 
+    "Selecciona tus imágenes", 
     type=["png", "jpg", "jpeg"], 
     accept_multiple_files=True
 )
 
 if uploaded_files:
-    lista_total = []
+    datos_para_excel = []
     
     for file in uploaded_files:
-        with st.expander(f"👁️ Ver imagen: {file.name}"):
-            image = Image.open(file)
-            st.image(image, use_container_width=True)
+        image = Image.open(file)
+        img_np = np.array(image)
+        
+        with st.spinner(f"Procesando {file.name}..."):
+            # Obtenemos el texto con su posición en la imagen
+            # Esto ayuda a separar mejor los bloques de texto
+            resultados = reader.readtext(img_np)
             
-            # Convertir imagen para EasyOCR
-            img_np = np.array(image)
-            
-            # Leer texto
-            with st.spinner(f"Leyendo {file.name}..."):
-                resultados = reader.readtext(img_np, detail=0)
+            # Variables temporales para cada fila del Excel
+            nombre = "Sin nombre"
+            telefono = ""
+            rol = "Miembro"
+
+            for (bbox, texto, prob) in resultados:
+                texto_limpio = texto.strip()
                 
-                # Lógica simple para organizar los datos leídos
-                # Aquí podrías mejorar cómo separas Nombre y Teléfono
-                texto_unido = " ".join(resultados)
-                lista_total.append({
-                    "Archivo": file.name,
-                    "Contenido Extraído": texto_unido
+                # 1. Detectar Teléfono (Si tiene + o muchos números seguidos)
+                if re.search(r'\+?\d[\d\s-]{7,}', texto_limpio):
+                    telefono = texto_limpio
+                
+                # 2. Detectar Rol (Si dice Admin)
+                elif "admin" in texto_limpio.lower():
+                    rol = "Administrador"
+                
+                # 3. Detectar Nombre (Si no es número ni admin, y tiene letras)
+                elif len(texto_limpio) > 2 and not any(char.isdigit() for char in texto_limpio):
+                    nombre = texto_limpio
+
+            # Solo guardamos si al menos encontramos un nombre o un teléfono
+            if nombre != "Sin nombre" or telefono != "":
+                datos_para_excel.append({
+                    "Nombre (Usuario)": nombre,
+                    "Teléfono": telefono,
+                    "Rol (Rango)": rol
                 })
 
-    # 2. Mostrar Tabla
-    df = pd.DataFrame(lista_total)
-    st.write("### Vista previa de datos:")
-    st.dataframe(df, use_container_width=True)
-
-    # 3. Función para descargar Excel
-    def to_excel(df):
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Contactos')
-        return output.getvalue()
+    # Creamos el DataFrame con la estructura exacta que pides
+    df = pd.DataFrame(datos_para_excel)
 
     if not df.empty:
-        excel_data = to_excel(df)
+        st.write("### Vista previa del orden (Columnas A, B, C):")
+        st.dataframe(df, use_container_width=True)
+
+        # Crear el archivo Excel profesional
+        def conversion_excel(df):
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # El DataFrame se escribe empezando en la celda A1 por defecto
+                df.to_excel(writer, index=False, sheet_name='Lista de Contactos')
+                
+                workbook = writer.book
+                worksheet = writer.sheets['Lista de Contactos']
+                
+                # Formato para que los encabezados se vean bien
+                header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+                for col_num, value in enumerate(df.columns.values):
+                    worksheet.write(0, col_num, value, header_format)
+                    worksheet.set_column(col_num, col_num, 25) # Ancho de columna
+
+            return output.getvalue()
+
+        boton_excel = conversion_excel(df)
+        
         st.download_button(
-            label="📥 Descargar todo en un Excel",
-            data=excel_data,
-            file_name="contactos_ia.xlsx",
+            label="📥 DESCARGAR EXCEL ORGANIZADO",
+            data=boton_excel,
+            file_name="contactos_limpios.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
-st.divider()
-st.info("💡 Consejo: Asegúrate de que las fotos tengan buena luz para que la IA lea mejor los números.")
+    else:
+        st.warning("No se detectaron datos claros en las imágenes.")
 
 st.info("Nota: La precisión depende de la calidad de la foto y la iluminación.")
+
 
 
 
