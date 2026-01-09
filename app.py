@@ -1,44 +1,47 @@
 import streamlit as st
 import pandas as pd
-import pytesseract
+import easyocr
+import numpy as np
 from PIL import Image
 from io import BytesIO
 import re
 
+# Cargamos lo que ya tienes
 st.set_page_config(layout="wide")
-st.title("Extractor de Contactos (Excel)")
+reader = easyocr.Reader(['es'], gpu=False)
 
-# Subida múltiple
+st.title("Extractor de Contactos")
+
 files = st.file_uploader("Sube tus imágenes", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
 if files:
-    datos = []
+    datos_lista = []
+    
     for f in files:
-        img = Image.open(f)
-        # Extraer texto de forma ligera
-        texto_sucio = pytesseract.image_to_string(img, lang='spa')
-        lineas = texto_sucio.split('\n')
+        # 1. Leer imagen
+        img = np.array(Image.open(f).convert('RGB'))
+        texto_detectado = reader.readtext(img, detail=0)
         
-        nombre, telefono, rol = "Sin nombre", "", "Miembro"
+        # 2. Variables para Columnas A, B y C
+        nombre, telefono, rol = "Sin nombre", "No encontrado", "Miembro"
         
-        for l in lineas:
-            t = l.strip()
-            if not t: continue
-            
-            # B - Teléfono
-            if re.search(r'\d{7,}', t):
-                telefono = t
-            # C - Rol
-            elif "admin" in t.lower():
+        for t in texto_detectado:
+            t_limpio = t.strip()
+            # Buscar Teléfono (Columna B)
+            if re.search(r'\d{7,}', t_limpio.replace(" ", "")):
+                telefono = t_limpio
+            # Buscar Rol (Columna C)
+            elif "admin" in t_limpio.lower():
                 rol = "Administrador"
-            # A - Nombre
-            elif len(t) > 2 and not any(c.isdigit() for c in t) and nombre == "Sin nombre":
-                nombre = t
+            # Buscar Nombre (Columna A)
+            elif len(t_limpio) > 3 and not any(c.isdigit() for c in t_limpio) and nombre == "Sin nombre":
+                nombre = t_limpio
         
-        datos.append({"Nombre": nombre, "Teléfono": telefono, "Rol": rol})
+        # 3. Guardar lado a lado
+        datos_lista.append({"Nombre": nombre, "Teléfono": telefono, "Rol": rol})
 
-    # Mostrar Tabla y Botón
-    df = pd.DataFrame(datos)
+    # Mostrar tabla y descargar
+    df = pd.DataFrame(datos_lista)
     st.table(df)
 
     output = BytesIO()
@@ -48,6 +51,7 @@ if files:
     st.download_button("Descargar Excel", output.getvalue(), "contactos.xlsx")
 
 st.info("Nota: La precisión depende de la calidad de la foto y la iluminación.")
+
 
 
 
