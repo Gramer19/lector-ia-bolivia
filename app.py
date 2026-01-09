@@ -6,51 +6,60 @@ from PIL import Image
 from io import BytesIO
 import re
 
-# Cargamos lo que ya tienes
-st.set_page_config(layout="wide")
-reader = easyocr.Reader(['es'], gpu=False)
+@st.cache_resource
+def load_reader():
+    return easyocr.Reader(['es'], gpu=False)
 
-st.title("Extractor de Contactos")
+reader = load_reader()
 
-files = st.file_uploader("Sube tus imágenes", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+st.title("Extractor de Contactos Múltiple")
 
-if files:
-    datos_lista = []
+# CAMBIO 1: Agregamos "accept_multiple_files=True"
+uploaded_files = st.file_uploader("Sube tus imágenes...", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+
+if uploaded_files:
+    datos_acumulados = [] # Aquí guardaremos todas las filas
     
-    for f in files:
-        # 1. Leer imagen
-        img = np.array(Image.open(f).convert('RGB'))
-        texto_detectado = reader.readtext(img, detail=0)
+    for uploaded_file in uploaded_files:
+        image = Image.open(uploaded_file)
+        img_np = np.array(image.convert('RGB'))
         
-        # 2. Variables para Columnas A, B y C
+        # Procesar cada imagen con la IA
+        result = reader.readtext(img_np, detail=0)
+        
         nombre, telefono, rol = "Sin nombre", "No encontrado", "Miembro"
         
-        for t in texto_detectado:
-            t_limpio = t.strip()
-            # Buscar Teléfono (Columna B)
-            if re.search(r'\d{7,}', t_limpio.replace(" ", "")):
-                telefono = t_limpio
-            # Buscar Rol (Columna C)
-            elif "admin" in t_limpio.lower():
+        for texto in result:
+            t = texto.strip()
+            if re.search(r'\d{7,}', t.replace(" ", "")):
+                telefono = t
+            elif "admin" in t.lower():
                 rol = "Administrador"
-            # Buscar Nombre (Columna A)
-            elif len(t_limpio) > 3 and not any(c.isdigit() for c in t_limpio) and nombre == "Sin nombre":
-                nombre = t_limpio
+            elif len(t) > 3 and not any(c.isdigit() for c in t) and nombre == "Sin nombre":
+                nombre = t
         
-        # 3. Guardar lado a lado
-        datos_lista.append({"Nombre": nombre, "Teléfono": telefono, "Rol": rol})
+        # CAMBIO 2: Vamos sumando cada contacto a la lista
+        datos_acumulados.append({"Nombre": nombre, "Teléfono": telefono, "Rol": rol})
+    
+    # Crear la tabla final con todos los datos juntos
+    df = pd.DataFrame(datos_acumulados)
+    st.write("### Lista de contactos extraídos:")
+    st.table(df) # Se verá la Columna A, B y C lado a lado
 
-    # Mostrar tabla y descargar
-    df = pd.DataFrame(datos_lista)
-    st.table(df)
-
+    # Generar el Excel con todo
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False)
+        df.to_excel(writer, index=False, sheet_name='Contactos')
     
-    st.download_button("Descargar Excel", output.getvalue(), "contactos.xlsx")
+    st.download_button(
+        label="📥 Descargar Excel con todos los contactos",
+        data=output.getvalue(),
+        file_name="contactos_totales.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 st.info("Nota: La precisión depende de la calidad de la foto y la iluminación.")
+
 
 
 
