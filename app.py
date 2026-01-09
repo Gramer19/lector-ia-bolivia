@@ -3,12 +3,13 @@ import easyocr
 import pandas as pd
 from PIL import Image
 import numpy as np
-import io
-import re
+from streamlit_gsheets import GSheetsConnection
 
-st.set_page_config(page_title="Lector IA Bolivia", page_icon="🇧🇴")
-st.title("Lector Inteligente Solucion Con Todos")
-st.write("Detecta: Nombre (A), Teléfono (B) y Rol (C)")
+st.set_page_config(page_title="IA a Google Sheets", page_icon="🇧🇴")
+st.title("🇧🇴 Base de Datos en la Nube")
+
+# Conexión con Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_resource
 def load_reader():
@@ -16,70 +17,49 @@ def load_reader():
 
 reader = load_reader()
 
-uploaded_file = st.file_uploader("Sube la captura de pantalla...", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Sube imagen para la base de datos...", type=["jpg", "jpeg", "png"])
 
-if uploaded_file is not None:
+if uploaded_file:
     image = Image.open(uploaded_file)
-    st.image(image, caption='Imagen subida', use_container_width=True)
-    st.write("🔍 Analizando y organizando datos...")
-    
     img_array = np.array(image)
     results = reader.readtext(img_array, detail=0)
     
     if results:
-        # Listas para organizar las columnas
-        nombres = []
-        telefonos = []
-        roles = []
-
-        # Lógica para separar los datos
+        nombres, telefonos, roles = [], [], []
         for texto in results:
-            texto_limpio = texto.strip()
-            
-            # 1. Buscar Teléfonos (si tiene muchos números)
-            if sum(c.isdigit() for c in texto_limpio) >= 7:
-                telefonos.append(texto_limpio)
-            # 2. Buscar Rol (Admin o Miembro)
-            elif "admin" in texto_limpio.lower():
-                roles.append("Administrador")
-            elif "miembro" in texto_limpio.lower():
-                roles.append("Miembro")
-            # 3. Lo demás es Nombre
-            else:
-                if len(texto_limpio) > 2: # Evitar basuritas de texto
-                    nombres.append(texto_limpio)
-
-        # Ajustar las listas para que tengan el mismo largo y entren en el Excel
+            t = texto.strip()
+            if sum(c.isdigit() for c in t) >= 7: telefonos.append(t)
+            elif "admin" in t.lower(): roles.append("Administrador")
+            elif "miembro" in t.lower(): roles.append("Miembro")
+            else: nombres.append(t)
+        
         max_len = max(len(nombres), len(telefonos), len(roles))
-        nombres += [""] * (max_len - len(nombres))
-        telefonos += [""] * (max_len - len(telefonos))
-        roles += [""] * (max_len - len(roles))
-
-        # Crear el DataFrame con las 3 columnas que pediste
-        df = pd.DataFrame({
-            "Nombre": nombres,
-            "Teléfono": telefonos,
-            "Rol": roles
+        df_nuevo = pd.DataFrame({
+            "Nombre": nombres + [""]*(max_len-len(nombres)),
+            "Teléfono": telefonos + [""]*(max_len-len(telefonos)),
+            "Rol": roles + [""]*(max_len-len(roles))
         })
-        
-        st.success("¡Datos organizados con éxito!")
-        st.table(df)
-        
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Contactos')
-        
-        st.download_button(
-            label="📥 Descargar Excel Organizado (A, B, C)",
-            data=output.getvalue(),
-            file_name="contactos_organizados.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else:
-        st.warning("No se encontró texto.")
+
+        st.write("Datos detectados:")
+        st.dataframe(df_nuevo)
+
+        if st.button("🚀 Guardar en Google Sheets Permanente"):
+            try:
+                # Leer datos actuales
+                df_existente = conn.read()
+                # Unir con los nuevos
+                df_final = pd.concat([df_existente, df_nuevo], ignore_index=True)
+                # Limpiar celdas vacías
+                df_final = df_final.dropna(how='all')
+                # Actualizar la nube
+                conn.update(data=df_final)
+                st.success("✅ ¡Guardado! Ya puedes cerrar esto y subir otra foto.")
+            except Exception as e:
+                st.error(f"Error al conectar: {e}")
 
 st.divider()
 
 st.info("Nota: La precisión depende de la calidad de la foto y la iluminación.")
+
 
 
