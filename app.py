@@ -8,7 +8,7 @@ from io import BytesIO
 
 # CONFIGURACIÓN PARA CELULARES
 st.set_page_config(
-    page_title="Extractor Bolivia", 
+    page_title="Extractor Bolivia Solucion con Todos ", 
     page_icon="🇧🇴", 
     layout="centered",  # Esto hace que en el móvil no se vea todo apretado
     initial_sidebar_state="collapsed"
@@ -22,7 +22,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🇧🇴 Extractor de Contactos Solucion con Todos ")
+st.title("🇧🇴 Extractor de Contactos ")
 
 # Cargar IA
 @st.cache_resource
@@ -98,6 +98,7 @@ if uploaded_files:
 
 st.divider()
 st.caption("Usa la cámara de tu celular para escanear directamente.")
+
 
 
 
