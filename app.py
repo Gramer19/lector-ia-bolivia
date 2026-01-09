@@ -6,20 +6,16 @@ import re
 import pandas as pd
 from io import BytesIO
 
-# Configuración visual
-st.set_page_config(page_title="Extractor Bolivia", page_icon="🇧🇴", layout="centered")
+st.set_page_config(page_title="Extractor Bolivia", page_icon="🇧🇴", layout="wide")
+st.title("🇧🇴 Extractor de Contactos Completo")
 
-st.title("🇧🇴 Extractor de Contactos")
-
-# Cargar IA (Se mantiene igual)
 @st.cache_resource
 def load_reader():
     return easyocr.Reader(['es'], gpu=False) 
 
 reader = load_reader()
 
-# CAMBIO: accept_multiple_files=True para subir muchas fotos
-uploaded_files = st.file_uploader("Selecciona imágenes...", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("Sube tus capturas", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
 
 if uploaded_files:
     all_rows = []
@@ -29,50 +25,57 @@ if uploaded_files:
         img_array = np.array(image.convert('RGB'))
         
         with st.spinner(f'Analizando {uploaded_file.name}...'):
-            results = reader.readtext(img_array, detail=0)
+            # Obtenemos los resultados con posición (para saber qué nombre va con qué número)
+            results = reader.readtext(img_array)
         
-        full_text = " ".join(results)
+        # Variables temporales para ir armando cada contacto
+        nombre_actual = "Sin nombre"
         
-        # --- LÓGICA DE COLUMNAS A, B, C ---
-        nombre = "Sin nombre"
-        telefono = "No encontrado"
-        rol = "Miembro"
+        for (bbox, text, prob) in results:
+            t_clean = text.strip()
+            
+            # 1. Si encontramos un TELÉFONO, asumimos que se completa un contacto
+            # Buscamos formato de Bolivia (8 dígitos o +591)
+            if re.search(r'(\+591\s?[6-7]\d{7}|[6-7]\d{7})', t_clean.replace(" ", "")):
+                telefono_encontrado = t_clean
+                
+                # Buscamos si cerca decía "Admin"
+                rol_encontrado = "Miembro"
+                # (Lógica simple: si la palabra admin está en el bloque de texto)
+                if "admin" in t_clean.lower():
+                    rol_encontrado = "Administrador"
 
-        # Buscar Teléfono (Columna B)
-        patron_bolivia = r'(\+591\s?[6-7]\d{7}|[6-7]\d{7})'
-        match_tel = re.search(patron_bolivia, full_text.replace(" ", ""))
-        if match_tel:
-            telefono = match_tel.group()
+                # Guardamos este contacto y reseteamos para el siguiente en la misma foto
+                all_rows.append({
+                    "Nombre": nombre_actual,
+                    "Teléfono": telefono_encontrado,
+                    "Rol": rol_encontrado
+                })
+                nombre_actual = "Sin nombre" # Limpiamos para el siguiente
+            
+            # 2. Si es texto sin números, probablemente es el nombre del siguiente contacto
+            elif len(t_clean) > 3 and not any(char.isdigit() for char in t_clean):
+                if "admin" in t_clean.lower():
+                    # Si la palabra admin viene sola, la marcamos para el último contacto
+                    if all_rows: all_rows[-1]["Rol"] = "Administrador"
+                else:
+                    nombre_actual = t_clean
 
-        # Buscar Rol (Columna C) y Nombre (Columna A)
-        for t in results:
-            t_clean = t.strip()
-            if "admin" in t_clean.lower():
-                rol = "Administrador"
-            elif len(t_clean) > 4 and not any(char.isdigit() for char in t_clean) and nombre == "Sin nombre":
-                nombre = t_clean
-
-        # Guardar en fila (Lado a lado)
-        all_rows.append({"Nombre": nombre, "Teléfono": telefono, "Rol": rol})
-
-    # Mostrar Tabla y Botón de Excel
     if all_rows:
         df = pd.DataFrame(all_rows)
-        st.table(df) # Esto muestra las 3 columnas lado a lado
+        st.subheader(f"📊 Se encontraron {len(df)} contactos en total")
+        st.table(df) # Aquí verás la lista larga con todos los nombres y números
 
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False, sheet_name='Contactos')
         
         st.download_button(
-            label="📥 Descargar Excel con todo",
+            label="📥 Descargar Excel con TODOS los datos",
             data=output.getvalue(),
-            file_name="contactos_bolivia.xlsx",
+            file_name="contactos_completos.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-
-
-
 
 
 
