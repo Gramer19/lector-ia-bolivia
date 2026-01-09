@@ -6,18 +6,24 @@ import numpy as np
 from io import BytesIO
 import re
 
+# 1. Configuración de página al principio
 st.set_page_config(page_title="Extractor de Contactos", layout="wide")
 
+# 2. Cargar el lector de forma segura
 @st.cache_resource
 def load_reader():
-    # Cargamos el modelo en español
-    return easyocr.Reader(['es'])
+    # Usamos CPU para que no dé error en Streamlit Cloud
+    return easyocr.Reader(['es'], gpu=False)
 
-reader = load_reader()
+try:
+    reader = load_reader()
+except Exception as e:
+    st.error("Error cargando el motor de lectura. Por favor, refresca la página.")
 
-st.title("📸 Extractor de Contactos a Excel (Columnas A, B, C)")
-st.write("Sube tus capturas. Los datos se organizarán lado a lado en el Excel.")
+st.title("📸 Extractor de Contactos a Excel")
+st.write("Sube tus capturas y las organizaremos en columnas A, B y C.")
 
+# 3. Subida de archivos
 uploaded_files = st.file_uploader(
     "Selecciona tus imágenes", 
     type=["png", "jpg", "jpeg"], 
@@ -28,79 +34,51 @@ if uploaded_files:
     datos_para_excel = []
     
     for file in uploaded_files:
-        image = Image.open(file)
-        img_np = np.array(image)
-        
-        with st.spinner(f"Procesando {file.name}..."):
-            # Obtenemos el texto con su posición en la imagen
-            # Esto ayuda a separar mejor los bloques de texto
-            resultados = reader.readtext(img_np)
+        try:
+            image = Image.open(file).convert('RGB')
+            img_np = np.array(image)
             
-            # Variables temporales para cada fila del Excel
-            nombre = "Sin nombre"
-            telefono = ""
-            rol = "Miembro"
-
-            for (bbox, texto, prob) in resultados:
-                texto_limpio = texto.strip()
+            with st.spinner(f"Leyendo {file.name}..."):
+                resultados = reader.readtext(img_np, detail=0)
                 
-                # 1. Detectar Teléfono (Si tiene + o muchos números seguidos)
-                if re.search(r'\+?\d[\d\s-]{7,}', texto_limpio):
-                    telefono = texto_limpio
-                
-                # 2. Detectar Rol (Si dice Admin)
-                elif "admin" in texto_limpio.lower():
-                    rol = "Administrador"
-                
-                # 3. Detectar Nombre (Si no es número ni admin, y tiene letras)
-                elif len(texto_limpio) > 2 and not any(char.isdigit() for char in texto_limpio):
-                    nombre = texto_limpio
+                nombre, telefono, rol = "Sin nombre", "", "Miembro"
 
-            # Solo guardamos si al menos encontramos un nombre o un teléfono
-            if nombre != "Sin nombre" or telefono != "":
-                datos_para_excel.append({
-                    "Nombre (Usuario)": nombre,
-                    "Teléfono": telefono,
-                    "Rol (Rango)": rol
-                })
+                for texto in resultados:
+                    t = texto.strip()
+                    # Buscar Teléfono
+                    if re.search(r'\+?\d[\d\s-]{7,}', t):
+                        telefono = t
+                    # Buscar Rol
+                    elif "admin" in t.lower():
+                        rol = "Administrador"
+                    # Buscar Nombre (si no es número ni admin)
+                    elif len(t) > 2 and not any(char.isdigit() for char in t) and nombre == "Sin nombre":
+                        nombre = t
 
-    # Creamos el DataFrame con la estructura exacta que pides
-    df = pd.DataFrame(datos_para_excel)
+                if nombre != "Sin nombre" or telefono != "":
+                    datos_para_excel.append({"Nombre": nombre, "Teléfono": telefono, "Rol": rol})
+        except Exception as e:
+            st.error(f"No se pudo leer la imagen {file.name}")
 
-    if not df.empty:
-        st.write("### Vista previa del orden (Columnas A, B, C):")
+    if datos_para_excel:
+        df = pd.DataFrame(datos_para_excel)
+        st.write("### Vista previa:")
         st.dataframe(df, use_container_width=True)
 
-        # Crear el archivo Excel profesional
-        def conversion_excel(df):
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                # El DataFrame se escribe empezando en la celda A1 por defecto
-                df.to_excel(writer, index=False, sheet_name='Lista de Contactos')
-                
-                workbook = writer.book
-                worksheet = writer.sheets['Lista de Contactos']
-                
-                # Formato para que los encabezados se vean bien
-                header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
-                for col_num, value in enumerate(df.columns.values):
-                    worksheet.write(0, col_num, value, header_format)
-                    worksheet.set_column(col_num, col_num, 25) # Ancho de columna
-
-            return output.getvalue()
-
-        boton_excel = conversion_excel(df)
+        # Crear Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Contactos')
         
         st.download_button(
-            label="📥 DESCARGAR EXCEL ORGANIZADO",
-            data=boton_excel,
-            file_name="contactos_limpios.xlsx",
+            label="📥 DESCARGAR EXCEL",
+            data=output.getvalue(),
+            file_name="contactos.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-    else:
-        st.warning("No se detectaron datos claros en las imágenes.")
 
 st.info("Nota: La precisión depende de la calidad de la foto y la iluminación.")
+
 
 
 
