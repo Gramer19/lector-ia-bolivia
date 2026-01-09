@@ -78,3 +78,4 @@ st.info("Nota: La precisión depende de la calidad de la foto y la iluminación.
 
 
 
+
