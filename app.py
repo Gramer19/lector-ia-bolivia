@@ -7,7 +7,7 @@ import io
 import re
 
 st.set_page_config(page_title="Lector IA Bolivia", page_icon="🇧🇴")
-st.title("🇧🇴 Lector Inteligente Organizado")
+st.title("Lector Inteligente Solucion Con Todos")
 st.write("Detecta: Nombre (A), Teléfono (B) y Rol (C)")
 
 @st.cache_resource
@@ -81,4 +81,5 @@ if uploaded_file is not None:
 st.divider()
 
 st.info("Nota: La precisión depende de la calidad de la foto y la iluminación.")
+
 
