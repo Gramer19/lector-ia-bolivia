@@ -1,65 +1,60 @@
 import streamlit as st
-import easyocr
 import pandas as pd
-from PIL import Image
-import numpy as np
-from streamlit_gsheets import GSheetsConnection
+from io import BytesIO
 
-st.set_page_config(page_title="IA a Google Sheets", page_icon="🇧🇴")
-st.title("🇧🇴 Base de Datos en la Nube")
+# Configuración de la página
+st.set_page_config(page_title="IA Lector de Contactos", layout="centered")
 
-# Conexión con Google Sheets
-conn = st.connection("gsheets", type=GSheetsConnection)
+st.title("📸 Extractor de Contactos IA")
+st.write("Sube una o varias capturas y descarga los datos en Excel.")
 
-@st.cache_resource
-def load_reader():
-    return easyocr.Reader(['es', 'en'], gpu=False)
+# 1. Selector de archivos (ahora acepta múltiples)
+uploaded_files = st.file_uploader(
+    "Selecciona tus capturas de pantalla", 
+    type=["png", "jpg", "jpeg"], 
+    accept_multiple_files=True
+)
 
-reader = load_reader()
+if uploaded_files:
+    lista_contactos = []  # Aquí se guardará todo
 
-uploaded_file = st.file_uploader("Sube imagen para la base de datos...", type=["jpg", "jpeg", "png"])
-
-if uploaded_file:
-    image = Image.open(uploaded_file)
-    img_array = np.array(image)
-    results = reader.readtext(img_array, detail=0)
-    
-    if results:
-        nombres, telefonos, roles = [], [], []
-        for texto in results:
-            t = texto.strip()
-            if sum(c.isdigit() for c in t) >= 7: telefonos.append(t)
-            elif "admin" in t.lower(): roles.append("Administrador")
-            elif "miembro" in t.lower(): roles.append("Miembro")
-            else: nombres.append(t)
+    for file in uploaded_files:
+        st.info(f"Procesando: {file.name}")
         
-        max_len = max(len(nombres), len(telefonos), len(roles))
-        df_nuevo = pd.DataFrame({
-            "Nombre": nombres + [""]*(max_len-len(nombres)),
-            "Teléfono": telefonos + [""]*(max_len-len(telefonos)),
-            "Rol": roles + [""]*(max_len-len(roles))
-        })
+        # --- AQUÍ VA TU LÓGICA DE GEMINI/IA ---
+        # datos = procesar_imagen_con_ia(file)
+        # lista_contactos.extend(datos)
+        
+        # Ejemplo temporal para que veas cómo se vería:
+        lista_contactos.append({"Nombre": "Ejemplo IA", "Teléfono": "123456789", "Rol": "Admin"})
 
-        st.write("Datos detectados:")
-        st.dataframe(df_nuevo)
+    # 2. Creamos la tabla (DataFrame)
+    df = pd.DataFrame(lista_contactos)
+    st.write("### Datos extraídos:")
+    st.dataframe(df)
 
-        if st.button("🚀 Guardar en Google Sheets Permanente"):
-            try:
-                # Leer datos actuales
-                df_existente = conn.read()
-                # Unir con los nuevos
-                df_final = pd.concat([df_existente, df_nuevo], ignore_index=True)
-                # Limpiar celdas vacías
-                df_final = df_final.dropna(how='all')
-                # Actualizar la nube
-                conn.update(data=df_final)
-                st.success("✅ ¡Guardado! Ya puedes cerrar esto y subir otra foto.")
-            except Exception as e:
-                st.error(f"Error al conectar: {e}")
+    # 3. Función mágica para crear el archivo Excel
+    def crear_excel(dataframe):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            dataframe.to_excel(writer, index=False, sheet_name='Contactos')
+        return output.getvalue()
 
+    # 4. Botón de Descarga
+    excel_archivo = crear_excel(df)
+    st.download_button(
+        label="📥 Descargar lista completa en Excel",
+        data=excel_archivo,
+        file_name="mis_contactos.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+st.divider()
+st.caption("Esta versión procesa todo en memoria, nada se guarda en la nube.")
 st.divider()
 
 st.info("Nota: La precisión depende de la calidad de la foto y la iluminación.")
+
 
 
 
