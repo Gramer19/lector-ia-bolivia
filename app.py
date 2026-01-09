@@ -22,7 +22,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🇧🇴 Extractor de Contactos ")
+st.title("🇧🇴 Extractor de Contactos Solucion Con Todos ")
 
 # Cargar IA
 @st.cache_resource
@@ -98,6 +98,7 @@ if uploaded_files:
 
 st.divider()
 st.caption("Usa la cámara de tu celular para escanear directamente.")
+
 
 
 
