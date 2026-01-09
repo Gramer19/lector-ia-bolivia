@@ -4,3 +4,4 @@ pandas
 pillow
 opencv-python-headless
 xlsxwriter
+st-gsheets-connection
